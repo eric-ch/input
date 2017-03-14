@@ -43,6 +43,18 @@ enum tap_state
     TS_POSSIBLE_DRAG,
     TS_DRAG
 };
+const char *tap_state_str(enum tap_state s)
+{
+    switch (s) {
+        case TS_START: return "start";
+        case TS_TOUCH: return "touch";
+        case TS_MOVE: return "move";
+        case TS_SINGLE_TAP_PENDING: return "single_tap_pending";
+        case TS_POSSIBLE_DRAG: return "possible_drag";
+        case TS_DRAG: return "drag";
+        default: return "(invalid)";
+    }
+}
 
 enum edge_type
 {
@@ -51,12 +63,30 @@ enum edge_type
     BOTTOM_EDGE = 2,
     TOP_EDGE = 4
 };
+const char *edge_type_str(enum edge_type e)
+{
+    switch (e) {
+        case NO_EDGE: return "none";
+        case RIGHT_EDGE: return "right";
+        case BOTTOM_EDGE: return "bottom";
+        case TOP_EDGE: return "top";
+        default: return "(invalid)";
+    }
+}
 
 enum scroll_type
 {
     SCROLL_UP = 0,
     SCROLL_DOWN
 };
+const char *scroll_type_str(enum scroll_type t)
+{
+    switch (t) {
+        case SCROLL_UP: return "up";
+        case SCROLL_DOWN: return "down";
+        default: return "(invalid)";
+    }
+}
 
 struct touchpad_packet
 {
@@ -68,6 +98,11 @@ struct touchpad_packet
     struct timeval timestamp;
     int fingertouching;
 };
+static void print_tp(const struct touchpad_packet *tp)
+{
+    info("tp: { x,y: %d,%d ; pressure:%d ; button_mask:%#x ; fingertouching:%d ; btn_touch:%d }",
+         tp->x, tp->y, tp->pressure, tp->button_mask, tp->fingertouching, tp->btn_touch);
+}
 
 struct move_history_rec
 {
@@ -75,6 +110,10 @@ struct move_history_rec
     int y;
     struct timeval timestamp;
 };
+static void print_mr(const struct move_history_rec *mr)
+{
+    info("mr : { %d,%d }", mr->x, mr->y);
+}
 
 struct scroll_data
 {
@@ -104,6 +143,16 @@ struct touchpad_state
 
     int touchpad_off;        /* Is the touchpad enabled or disabled. */
 };
+static void print_ts(const struct touchpad_state *ts)
+{
+    info("ts : { last: { %d,%d ; fingertouching:%d } ;", ts->last_x,
+         ts->last_y, ts->last_fingertouching);
+    info("       tap_state:%s, packet_count_move:%d ;",
+         tap_state_str(ts->tapstate), ts->packet_count_move);
+    info("       frac: { %f,%f } ;", ts->frac_x, ts->frac_y);
+    info("}");
+
+}
 
 struct touchpad_limits
 {
@@ -133,6 +182,17 @@ struct touchpad_limits
     /* True when the clickpad is pressed on the bottom edge. */
     int is_clickpad_pressed;
 };
+static void print_tl(const struct touchpad_limits *tl)
+{
+    info("tl: { x: %d-%d ; y: %d-%d ; no_x,y: %d,%d", tl->minx, tl->maxx, tl->miny, tl->maxy, tl->no_x, tl->no_y);
+    info("      pressure: %d-%d ; no_pressure: %d", tl->min_pressure, tl->max_pressure, tl->no_pressure);
+    info("      edges: right=%d,top=%d,bottom=%d", tl->right_edge, tl->top_edge, tl->bottom_edge);
+    info("      move-delta: %d", tl->tap_move);
+    info("      scroll-delta: %d", tl->scroll_dist_vert);
+    info("      speed: %f", tl->speed);
+    info("      left-clic-max: %d", tl->clickpad_left_button_maxx);
+    info("}");
+}
 
 struct touchpad_config
 {
@@ -999,6 +1059,9 @@ static void process_packet(struct touchpad_state *ts,
     if (ts->touchpad_off == 1)
         return;
 
+    print_ts(ts);
+    print_tp(tp);
+
     if (tp->x == tl->no_x)
         x_value = ts->last_x;
 
@@ -1008,8 +1071,15 @@ static void process_packet(struct touchpad_state *ts,
     adjust_overflow(tp, tl);
 
     edge = detect_edge(x_value, y_value, tl->right_edge, tl->bottom_edge, tl->top_edge);
+    info("Detected edge (%d,%d right:%d, bottom:%d, top:%d): %s.",
+         x_value, y_value,
+         tl->right_edge, tl->bottom_edge, tl->top_edge,
+         edge_type_str(edge));
 
     tp->fingertouching = detect_finger(tp, tl);
+    info("Detect finger contact (pressure:%d, range:%d-%d): %s",
+         tp->pressure, tl->min_pressure, tl->max_pressure,
+         tp->fingertouching ? "yes" : "no");
 
     if (tl->is_clickpad)
         handle_clickpad(ts, tp, tl, edge);
@@ -1039,38 +1109,54 @@ void handle_touchpad_event(struct input_event *ev,int slot)
     static int sync_recd = 1;
     gSlot=slot;
 
-    if (sync_recd == 1)
-    {
+    /* Why is this defered? Is anything else expecting to read the damn global
+     * by the time handle_touchpad_event is called?!
+     */
+    if (sync_recd == 1) {
+        info("...... Reset packet.");
         reset_touchpad_packet(&tpacket, &tlimits);
         sync_recd = 0;
     }
 
-    if ((ev->type == EV_SYN) && (ev->code == SYN_REPORT))
-    {
-        /* Packet is complete, now process it. */
-        tpacket.timestamp = ev->time;
-        sync_recd = 1;
-        process_packet(&tstate, &tpacket, &tlimits, &tconfig);
-    }
-    else if (ev->type == EV_ABS)
-    {
-        if ((ev->code == ABS_X) || (ev->code == ABS_MT_POSITION_X))
-            tpacket.x = ev->value;
-        else if ((ev->code == ABS_Y) || (ev->code == ABS_MT_POSITION_Y))
-            tpacket.y = ev->value;
-        else if ((ev->code == ABS_PRESSURE) || (ev->code ==ABS_MT_PRESSURE))
-            tpacket.pressure = ev->value;
+    switch (ev->type) {
+        case EV_SYN:
+        /* XXX: Weird... that's EV_SYN and not an EV_... */
+        //case SYN_REPORT:
+            info("type:%s(%zu); code:%s(%#x); value:%#x",
+                 ev_type_str(ev->type), ev->type,
+                 syn_type_str(ev->code), ev->code,
+                 ev->value);
+            /* Packet is complete, now process it. */
+            tpacket.timestamp = ev->time;
+            sync_recd = 1;
+            info("...... Process packet.");
+            process_packet(&tstate, &tpacket, &tlimits, &tconfig);
+            break;
+        case EV_ABS:
+            info("type:%s(%zu); code:%s(%#x); value:%#x",
+                 ev_type_str(ev->type), ev->type,
+                 abs_type_str(ev->code), ev->code,
+                 ev->value);
+            if ((ev->code == ABS_X) || (ev->code == ABS_MT_POSITION_X))
+                tpacket.x = ev->value;
+            else if ((ev->code == ABS_Y) || (ev->code == ABS_MT_POSITION_Y))
+                tpacket.y = ev->value;
+            else if ((ev->code == ABS_PRESSURE) || (ev->code == ABS_MT_PRESSURE))
+                tpacket.pressure = ev->value;
+            break;
 
-    }
-    else if (ev->type == EV_KEY)
-    {
-        if ((ev->code >=BTN_LEFT) && (ev->code <=BTN_TASK))
-        {
-            int bitpair = (ev->code - BTN_LEFT) << 1;
-            tpacket.button_mask |= 1 << ( bitpair + (ev->value?0:1));
-        }
-        if (ev->code == BTN_TOUCH)
-            tpacket.btn_touch = ev->value;
+        case EV_KEY:
+            info("type:%s(%zu); code:%s(%#x); value:%#x",
+                 ev_type_str(ev->type), ev->type,
+                 key_type_str(ev->code), ev->code,
+                 ev->value);
+            if ((ev->code >= BTN_LEFT) && (ev->code <= BTN_TASK)) {
+                int bitpair = (ev->code - BTN_LEFT) << 1;
+                tpacket.button_mask |= 1 << ( bitpair + (ev->value?0:1));
+            }
+            if (ev->code == BTN_TOUCH)
+                tpacket.btn_touch = ev->value;
+            break;
     }
 }
 
@@ -1306,6 +1392,7 @@ int init_touchpad(int fd)
         info("device on fd %d is a clickpad", fd);
     }
 
+    print_tl(&tlimits);
     return 0;
 }
 

@@ -19,6 +19,7 @@
 #include "project.h"
 
 #include "keyboard.h"
+#include "input-utils.h"
 
 #define EVENT_FILES         "/dev/input/event"
 
@@ -197,6 +198,14 @@ static inputevent_action demultitouch(struct input_event *e)
     static int slot = 0;
     static int pressed = 0;
     static int had_slot0 = 0;
+
+#if 0
+    if (e)
+        info("type:%s(%zu); code:%s(%zu); value:%#x",
+             ev_type_str(e->type), e->type,
+             abs_type_str(e->code), e->code,
+             e->value);
+#endif
 
     if (draining && deferpressed == nope)
         info("WARNING! draining but not deferpressed!\n");
@@ -377,7 +386,7 @@ void fixkeybits(unsigned long *keybits, uint64_t * absbits, int slot)
     unsigned long *kb;
     unsigned long bit;
     if (input_dev.types[slot] == HID_TYPE_TOUCHPAD)
-    { // crear out any keys that don't look like mouse keys
+    { // clear out any keys that don't look like mouse keys
         keybits[2] = 0;
         keybits[0] &= ~ (unsigned long)0x1FF;
     } else
@@ -1658,9 +1667,19 @@ void input_inject(struct input_event *e, int slot, enum input_device_type input_
 
     struct domain *d = mouse_dest;
     int val = 0;
+    static size_t ratelimit = 0;
 
     if (!e)
         return;
+
+#if 0
+    info("type:%s(%zu); code:%s(%zu); value:%#x",
+         ev_type_str(e->type), e->type,
+         abs_type_str(e->code), e->code,
+         e->value);
+#endif
+    if (!(++ratelimit % 128))
+        print_bt();
 
     if ((e->type == EV_KEY || e->type == EV_REL || e->type == EV_ABS) && timeout_expired())
     {
@@ -2812,6 +2831,13 @@ static int consider_device(int slot)
     if (devices_blacklist(id.bustype, name))
         return -1;
 
+    info("Considering device `%s' bus:%s, %04u:%04u ...",
+         name, bus_type_str(id.bustype), id.vendor, id.product);
+    info("Supported events, etc:");
+    print_input_events(fd);
+    print_input_axes(fd);
+    print_input_keys(fd);
+
     if (!ioctl(fd, EVIOCGRAB, current_grab))
         input_dev.grab[slot] = current_grab;
 
@@ -2838,6 +2864,8 @@ static int consider_device(int slot)
     {
         info("event%d added keyboard on fd %d (%s)", slot, fd, name);
         input_dev.types[slot] = HID_TYPE_KEYBOARD;
+
+        print_input_keys_interesting(fd);
 
         event_set(&input_dev.device_events[slot], fd, EV_READ | EV_PERSIST, wrapper_input_read, (void *) slot);
         event_add(&input_dev.device_events[slot], NULL);
@@ -2874,6 +2902,7 @@ static int consider_device(int slot)
     }
     else if (ret == HID_TYPE_TABLET)
     {
+        print_input_keys_interesting(fd);
         if (init_usb_tablet(fd, slot, subtype) < 0)
             return -1;
 

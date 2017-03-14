@@ -46,7 +46,7 @@
 #include <time.h>
 #include <dirent.h>
 #include <syslog.h>
-
+#include <execinfo.h>
 
 #include <openssl/md4.h>
 #include <openssl/sha.h>
@@ -134,5 +134,7 @@ enum input_device_type
 
 //#define debug 1
 //#define debug_packets 1
+
+#include "input-utils.h"
 
 #include "prototypes.h"
