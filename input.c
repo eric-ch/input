@@ -2445,7 +2445,7 @@ static void input_lock_timer(void *opaque)
     static int timeout = 0;
     struct timeval tv = { 0, 0 };
 
-    if (lock_event.ev_flags == 0)
+    if (event_initialized(&lock_event))
         event_set(&lock_event, -1, EV_TIMEOUT | EV_PERSIST, wrapper_input_lock_timer, (void *) 1);
 
     if ((int) opaque == 0)
@@ -2623,7 +2623,7 @@ int input_secure(int onoff)
                 {
                     event_set(&revert_to_auth_event, -1, EV_TIMEOUT | EV_PERSIST, wrapper_revert_to_auth, NULL);
 
-                    if (revert_to_auth_event.ev_flags == 0)
+                    if (!event_initialized(&revert_to_auth_event))
                     {
                         return 0;
                     }
