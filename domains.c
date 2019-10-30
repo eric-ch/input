@@ -229,7 +229,7 @@ domain_get_whitelist_drivers()
               : (int)strlen(beg);
         if (sz > 0) {
             driver[dri] = malloc(sz+1);
-            strncpy(driver[dri], beg, sz);
+            memcpy(driver[dri], beg, sz);
             driver[dri][sz] = 0;
             ++dri;
         }

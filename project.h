@@ -99,7 +99,7 @@
 #define TEST_BIT(bit, array) (array[LONG(bit)] & (1 << OFF(bit)))
 #define ARRAY_LEN(arr) (sizeof (arr) / sizeof ((arr)[0]))
 
-#define BTN_WORDS 3
+#define BTN_WORDS (NBITS(KEY_OK) - LONG(BTN_MISC))
 #define ABS_WORDS 2
 
 #define SUBTYPE_NONE       0

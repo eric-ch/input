@@ -379,15 +379,15 @@ void fixkeybits(unsigned long *keybits, uint64_t * absbits, int slot)
     unsigned long bit;
     if (input_dev.types[slot] == HID_TYPE_TOUCHPAD)
     { // crear out any keys that don't look like mouse keys
-        keybits[2] = 0;
+        //keybits[2] = 0;
         keybits[0] &= ~ (unsigned long)0x1FF;
     } else
 
     if ((*absbits & ((uint64_t) 1 << ABS_MT_POSITION_X)) && (*absbits & ((uint64_t) 1 << ABS_MT_POSITION_Y)))
     {
         info("Clearing btn_touch for multitouch device.\n");
-        bit = 1 << OFF(key = BTN_TOUCH - BTN_MISC);
-        keybits[LONG(key)] &= ~ bit;
+        key = BTN_TOUCH - BTN_MISC;
+        keybits[LONG(key)] &= ~(1 << OFF(key));
     }
 }
 
@@ -405,8 +405,8 @@ int relbits_to_absbits(struct domain *d, unsigned long *relbits, uint64_t * absb
 
 static int anyset(unsigned long *keybit)
 {
-    int i, a;
-    a = 0;
+    unsigned int i;
+    int a = 0;
     for (i = 0; i < BTN_WORDS; i++)
         a |= keybit[i];
     return a;
@@ -466,7 +466,7 @@ static void send_config(struct domain *d, int slot)
     unsigned long keybit[NBITS(KEY_OK)];
     unsigned long absbit[NBITS(ABS_MAX)];
     unsigned long relbit[NBITS(REL_MAX)];
-    unsigned long *btnbit = &(keybit[NBITS(BTN_MISC)]);
+    unsigned long *btnbit = &(keybit[LONG(BTN_MISC)]);
     memset(absbit, 0, absposiblesize);
 
 
